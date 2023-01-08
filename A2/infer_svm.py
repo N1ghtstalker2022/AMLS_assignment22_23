@@ -48,7 +48,7 @@ def refit_strategy(cv_results):
         The index of the best estimator as it appears in `cv_results`.
     """
     # print the info about the grid-search for the different scores
-    precision_threshold = 0.98
+    precision_threshold = 0.8
 
     cv_results_ = pd.DataFrame(cv_results)
     print("All grid-search results:")

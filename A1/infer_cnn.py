@@ -42,6 +42,8 @@ def infer():
     batch_size = 32
     train_ds = train_ds.batch(batch_size)
     val_ds = val_ds.batch(batch_size)
+    test_ds = test_set.batch(batch_size)
+
     for images, labels in train_ds.take(1):
         print("...")
         labels = labels.numpy()
@@ -50,7 +52,8 @@ def infer():
             plt.imshow(images[i].numpy().astype("uint8"))
             plt.title(class_dic[labels[i]])
             plt.axis("off")
-        plt.show()
+        plt.savefig('./sample_data.png')
+        plt.close()
 
     # configure the dataset for performance.
 
@@ -76,7 +79,7 @@ def infer():
     ])
 
     # Cross-validation process -----------------------------------------------------------------------------------------
-    best_learning_rate = 0
+    best_learning_rate = 1e-3
     possible_learning_rates = [1e-2, 1e-3, 1e-4]
     folds_num = 10
     # Define the K-fold Cross Validator
@@ -169,6 +172,7 @@ def infer():
 
     best_learning_rate = possible_learning_rates[min_index]
 
+    print(f'Best learning rate learned is {best_learning_rate}')
     # Compile the model ------------------------------------------------------------------------------------------------
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=best_learning_rate),
                   loss=loss_function,
@@ -210,7 +214,8 @@ def infer():
     plt.close()
 
     # predict
-    test_loss = model.evaluate(test_set)
+    test_loss = model.evaluate(test_ds)
+    print(f'{test_loss}')
     #
     # # implement dropout ------------------------------------------------------------------------------------------------
     # model_dropout = Sequential([
