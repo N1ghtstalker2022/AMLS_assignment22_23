@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 from matplotlib import pyplot as plt
 from sklearn import svm, preprocessing
 import cv2
@@ -107,7 +108,7 @@ def refit_strategy(cv_results):
 
 def adjust_dataset(dataset):
     dataset_set_adjust = [[], []]
-    print(dataset[0][0].flatten())
+    # print(dataset[0][0].flatten())
     for data in dataset:
         dataset_set_adjust[0].append(data[0].flatten())
         dataset_set_adjust[1].append(data[1])
@@ -121,6 +122,7 @@ def infer():
 
     test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/celeba_test/img',
                                '../Datasets/dataset_AMLS_22-23_test/celeba_test/labels.csv')
+
 
     train_size = int(0.8 * dataset_size)
 
@@ -152,7 +154,10 @@ def infer():
     # plot some samples
     for i in range(9):
         ax = plt.subplot(3, 3, i + 1)
-        plt.imshow(train_data[i].astype("uint8"))
+        cur_img = train_data[i].reshape(50, 50, 3).astype("uint8")
+        cur_img = cv2.cvtColor(cur_img, cv2.COLOR_BGR2RGB)
+
+        plt.imshow(cur_img)
         plt.title(class_dic[train_label[i]])
         plt.axis("off")
     plt.savefig('./sample.png')
@@ -188,8 +193,10 @@ def infer():
     # plot some samples
     for i in range(9):
         ax = plt.subplot(3, 3, i + 1)
-        plt.imshow(test_data[i].astype("uint8"))
-        plt.title(class_dic[predict_label[i]])
+        cur_img = test_data[i].reshape(50, 50, 3).astype("uint8")
+        cur_img = cv2.cvtColor(cur_img, cv2.COLOR_BGR2RGB)
+        plt.imshow(cur_img)
+        plt.title(class_dic[train_label[i]])
         plt.axis("off")
     plt.savefig('./prediction_sample.png')
     plt.close()

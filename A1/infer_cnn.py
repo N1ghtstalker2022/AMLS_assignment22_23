@@ -1,10 +1,8 @@
 import os
 import sys
 
-import numpy
 import numpy as np
 import tensorflow as tf
-import keras_tuner as kt
 from keras import datasets, layers, models, Sequential
 from sklearn.model_selection import KFold
 
@@ -16,30 +14,28 @@ from tensorflow.python.data import Dataset, make_one_shot_iterator
 AUTOTUNE = tf.data.AUTOTUNE
 # change to
 loss_function = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+# define fixed image size for input
+img_height = 50
+img_width = 50
+# used for plot
+class_dic = {1: 'male', 0: 'female'}
+label_num = len(class_dic)
+batch_size = 32
+epochs = 10
 
 
-def infer():
+def make_datasets():
     # load image
-    dataset, dataset_size = make_dataset('../Datasets/dataset_AMLS_22-23/celeba/img',
-                                         '../Datasets/dataset_AMLS_22-23/celeba/labels.csv')
+    dataset, dataset_size = make_dataset('Datasets/dataset_AMLS_22-23/celeba/img',
+                                         'Datasets/dataset_AMLS_22-23/celeba/labels.csv')
 
-    test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/celeba_test/img',
-                               '../Datasets/dataset_AMLS_22-23_test/celeba_test/labels.csv')
-    # used for plot
-    class_dic = {1: 'male', 0: 'female'}
-    label_num = len(class_dic)
+    test_set, _ = make_dataset('Datasets/dataset_AMLS_22-23_test/celeba_test/img',
+                               'Datasets/dataset_AMLS_22-23_test/celeba_test/labels.csv')
 
     train_size = int(0.8 * dataset_size)
-    # val_size = dataset_size - train_size
     train_ds = dataset.take(train_size)
     val_ds = dataset.skip(train_size)
 
-    train_dataset = [[], []]
-    for elem in train_ds:
-        train_dataset[0].append(elem[0].numpy())
-        train_dataset[1].append(elem[1].numpy())
-
-    batch_size = 32
     train_ds = train_ds.batch(batch_size)
     val_ds = val_ds.batch(batch_size)
     test_ds = test_set.batch(batch_size)
@@ -52,34 +48,19 @@ def infer():
             plt.imshow(images[i].numpy().astype("uint8"))
             plt.title(class_dic[labels[i]])
             plt.axis("off")
-        plt.savefig('./sample_data.png')
+        plt.savefig('A1/sample_data.png')
         plt.close()
 
-    # configure the dataset for performance.
+    return dataset, train_ds, val_ds, test_ds
 
-    train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-    val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
-    # define fixed image size for input
-    img_height = 250
-    img_width = 250
-    # create the model, CNN
-    model = Sequential([
-        layers.Resizing(img_height, img_width),
-        layers.Rescaling(1. / 255, input_shape=(img_height, img_width, 3)),
-        layers.Conv2D(16, 3, padding='same', activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(32, 3, padding='same', activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(64, 3, padding='same', activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Flatten(),
-        layers.Dense(128, activation='relu'),
-        layers.Dense(label_num)
-    ])
+def cross_validation(dataset):
+    train_dataset = [[], []]
+    for elem in dataset:
+        train_dataset[0].append(elem[0].numpy())
+        train_dataset[1].append(elem[1].numpy())
 
     # Cross-validation process -----------------------------------------------------------------------------------------
-    best_learning_rate = 1e-3
     possible_learning_rates = [1e-2, 1e-3, 1e-4]
     folds_num = 10
     # Define the K-fold Cross Validator
@@ -96,8 +77,8 @@ def infer():
         for train_index, test_index in k_fold.split(train_dataset[0], train_dataset[1]):
             # Define the model architecture
             interim_model = Sequential([
-                layers.Resizing(img_height, img_width),
-                layers.Rescaling(1. / 255, input_shape=(img_height, img_width, 3)),
+                layers.Resizing(50, 50),
+                layers.Rescaling(1. / 255, input_shape=(50, 50, 3)),
                 layers.Conv2D(16, 3, padding='same', activation='relu'),
                 layers.MaxPooling2D(),
                 layers.Conv2D(32, 3, padding='same', activation='relu'),
@@ -173,16 +154,46 @@ def infer():
     best_learning_rate = possible_learning_rates[min_index]
 
     print(f'Best learning rate learned is {best_learning_rate}')
+    return best_learning_rate
+
+
+def train(dataset, train_ds, val_ds, test_ds, cv_option=False):
+    # cross validation
+
+    if cv_option:
+        best_learning_rate = cross_validation(dataset)
+
+    else:
+        best_learning_rate = 0.02
+
+    # configure the dataset for performance.
+    train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
+    val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+
+    # create the model, CNN
+    model = Sequential([
+        layers.Resizing(img_height, img_width),
+        layers.Rescaling(1. / 255, input_shape=(img_height, img_width, 3)),
+        layers.Conv2D(16, 3, padding='same', activation='relu'),
+        layers.MaxPooling2D(),
+        layers.Conv2D(32, 3, padding='same', activation='relu'),
+        layers.MaxPooling2D(),
+        layers.Conv2D(64, 3, padding='same', activation='relu'),
+        layers.MaxPooling2D(),
+        layers.Flatten(),
+        layers.Dense(128, activation='relu'),
+        layers.Dense(label_num)
+    ])
+
     # Compile the model ------------------------------------------------------------------------------------------------
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=best_learning_rate),
                   loss=loss_function,
                   metrics=['accuracy'])
 
     # Train the model
-    epochs = 1
     history = model.fit(
         train_ds,
-        validation_data=val_ds,
+        validation_data=test_ds,
         epochs=epochs
     )
 
@@ -195,6 +206,8 @@ def infer():
 
     loss = history.history['loss']
     val_loss = history.history['val_loss']
+    print(loss)
+    print(acc[0])
 
     epochs_range = range(epochs)
 
@@ -210,13 +223,17 @@ def infer():
     plt.plot(epochs_range, val_loss, label='Validation Loss')
     plt.legend(loc='upper right')
     plt.title('Training and Validation Loss')
-    plt.savefig('training_results.png')
+    if cv_option:
+        plt.savefig('A1/training_results.png')
+    else:
+        plt.savefig('A1/training_no_cv_results.png')
     plt.close()
 
-    # predict
-    test_loss = model.evaluate(test_ds)
-    print(f'{test_loss}')
-    #
+    # with k-fold
+    model.save('./cnn_model')
+    # without k-fold
+    # model.save('./cnn_no_cv_model')
+
     # # implement dropout ------------------------------------------------------------------------------------------------
     # model_dropout = Sequential([
     #     layers.Rescaling(1. / 255),
@@ -263,6 +280,8 @@ def infer():
     # plt.title('Training and Validation Loss')
     # plt.savefig('training_results_dropout.png')
     # plt.close()
+    # with k-fold
+    model.save('A1/cnn_dropout_model')
 
     print("!!!")
 
@@ -299,7 +318,6 @@ def make_dataset(image_path, label_path):
 
 
 def get_filenames_from_folder(folder):
-    print(folder)
     filenames = []
     image_file = os.listdir(folder)  # your directory path
     img_num = len(image_file)
@@ -309,5 +327,12 @@ def get_filenames_from_folder(folder):
     return filenames
 
 
-if __name__ == '__main__':
-    infer()
+def run_saved_model(test_ds):
+    saved_model = tf.keras.models.load_model('A1/cnn_model')
+
+    # Check its architecture
+    saved_model.summary()
+
+    # Predict
+    test_loss = saved_model.evaluate(test_ds)
+    print(f'{test_loss}')
