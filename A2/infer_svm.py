@@ -7,10 +7,10 @@ from matplotlib import pyplot as plt
 from sklearn import svm, preprocessing
 import cv2
 import random
-
 from sklearn.metrics import accuracy_score, classification_report
-from sklearn.model_selection import cross_val_score, cross_validate, GridSearchCV
+from sklearn.model_selection import cross_val_score, cross_validate, GridSearchCV, learning_curve
 from sklearn.svm import SVC
+from joblib import dump, load
 
 
 def print_dataframe(filtered_cv_results):
@@ -49,7 +49,7 @@ def refit_strategy(cv_results):
         The index of the best estimator as it appears in `cv_results`.
     """
     # print the info about the grid-search for the different scores
-    precision_threshold = 0.8
+    precision_threshold = 0.7
 
     cv_results_ = pd.DataFrame(cv_results)
     print("All grid-search results:")
@@ -123,7 +123,6 @@ def infer():
     test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/celeba_test/img',
                                '../Datasets/dataset_AMLS_22-23_test/celeba_test/labels.csv')
 
-
     train_size = int(0.8 * dataset_size)
 
     train_set_indices = random.sample(range(dataset_size), train_size)
@@ -135,12 +134,8 @@ def infer():
     train_set = [[], []]
     val_set = [[], []]
     for index in range(dataset_size):
-        if index in train_set_indices:
-            train_set[0].append(dataset[0][index])
-            train_set[1].append(dataset[1][index])
-        else:
-            val_set[0].append(dataset[0][index])
-            val_set[1].append(dataset[1][index])
+        train_set[0].append(dataset[0][index])
+        train_set[1].append(dataset[1][index])
 
     # define input
     train_data = train_set[0]
@@ -174,20 +169,34 @@ def infer():
     # Exhaustive Grid Search to select best estimators
     # hyperparameter set
     tuned_parameters = [
-        {"kernel": ["rbf"], "gamma": [1e-3, 1e-4], "C": [1, 10, 100, 1000]},
-        {"kernel": ["linear"], "C": [1, 10, 100, 1000]},
+        {"kernel": ["rbf"], "gamma": [1e-3, 1e-4], "C": [1, 10, 100]},
+        {"kernel": ["linear"], "gamma": [1e-3, 1e-4], "C": [1, 10, 100]},
     ]
 
     grid_search = GridSearchCV(
-        SVC(), tuned_parameters, scoring=scores, cv=5, refit=refit_strategy, verbose=3
+        SVC(), tuned_parameters, scoring=scores, cv=5, refit=refit_strategy, verbose=1
     )
+
+    # best_model = SVC(C=1, kernel='rbf', verbose=1)
 
     grid_search.fit(train_data, train_label)
 
+    best_model = grid_search.best_estimator_
+
+    print(best_model)
+    #
+    # size, train_scores, valid_scores = learning_curve(best_model, train_data, train_label, train_sizes=np.linspace(0.1, 1.0, 10))
+    # print(size)
+    # plt.plot(size, np.mean(train_scores, axis=1), 'r--', label='Training Accuracy')
+    # plt.plot(size, np.mean(valid_scores, axis=1), 'b--', label='Validation Accuracy')
+    # # plt.xlabel('x label')
+    # # plt.ylabel('y label')
+    # plt.title("Training and Validation Accuracy")
+    # plt.legend()
+    # plt.savefig('./learning_curve.png')
+
     # test svm model
-    predict_label = grid_search.predict(test_data)
     print(grid_search.best_params_)
-    print(classification_report(test_label, predict_label))
 
     # get a glance of the model performance
     # plot some samples
@@ -200,7 +209,8 @@ def infer():
         plt.axis("off")
     plt.savefig('./prediction_sample.png')
     plt.close()
-
+    # save the model
+    dump(best_model, './svm_model.joblib')
 
 
 def make_dataset(image_path, label_path):
@@ -245,5 +255,22 @@ def get_filenames_from_folder(folder):
     return filenames
 
 
+def run_trained_model():
+    test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/celeba_test/img',
+                               '../Datasets/dataset_AMLS_22-23_test/celeba_test/labels.csv')
+
+    test_set = adjust_dataset(test_set)
+
+    test_data = test_set[0]
+
+    test_label = test_set[1]
+
+    model = load('svm_model.joblib')
+
+    predict_label = model.predict(test_data)
+
+    print(accuracy_score(test_label, predict_label))
+
+
 if __name__ == '__main__':
-    infer()
+    run_trained_model()

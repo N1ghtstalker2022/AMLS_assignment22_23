@@ -9,13 +9,15 @@ import random
 
 import tensorflow_decision_forests as tfdf
 import tensorflow as tf
+from sklearn.metrics import accuracy_score
 
 
 def make_dataset(image_path, label_path):
     # load image
     labels_df = pd.read_csv(label_path, sep='\t')
     labels_df = labels_df.drop(labels_df.columns[0], axis=1)
-    labels = labels_df.loc[:, 'eye_color'].tolist()
+    labels = labels_df.loc[:, 'face_shape'].tolist()
+
     # Convert to tensorflow datasets
     # step 1
     filenames = tf.constant(get_filenames_from_folder(image_path))
@@ -27,7 +29,7 @@ def make_dataset(image_path, label_path):
 
     def _parse_function(filename, label):
         image_string = tf.io.read_file(filename)
-        image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+        image_decoded = tf.image.decode_png(image_string, channels=3)
         image_resized = tf.image.resize(image_decoded, [50, 50])
         image = tf.cast(tf.reshape(image_resized, [-1]), tf.float32)
         return image, label
@@ -58,6 +60,7 @@ def infer():
     test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/img',
                                '../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/labels.csv')
 
+
     # used for plot samples
     class_dic = {0: 'type1', 1: 'type2', 2: 'type3', 3: 'type4', 4: 'type5'}
 
@@ -79,10 +82,63 @@ def infer():
     test_set = test_set.batch(batch_size)
 
     # Train a model with default hyperparameters
-    model = tfdf.keras.GradientBoostedTreesModel()
+    model = tfdf.keras.RandomForestModel(verbose=0)
 
     model.fit(train_set)
 
+    logs = model.make_inspector().training_logs()
+
+    plt.figure(figsize=(12, 4))
+
+    plt.subplot(1, 2, 1)
+    plt.plot([log.num_trees for log in logs], [log.evaluation.accuracy for log in logs])
+    plt.xlabel("Number of trees")
+    plt.ylabel("Accuracy (out-of-bag)")
+
+    plt.subplot(1, 2, 2)
+    plt.plot([log.num_trees for log in logs], [log.evaluation.loss for log in logs])
+    plt.xlabel("Number of trees")
+    plt.ylabel("Logloss (out-of-bag)")
+    plt.savefig('./training_results.png')
+    plt.close()
+
+    # Summary of the model structure.
+    model.summary()
+
+    # Evaluate the model.
+    test_loss = model.evaluate(test_set)
+    print(f'{test_loss}')
+
+
+    # Save the model.
+    model.save("./rf_model")
+
+def run_saved_model():
+    saved_model = tf.keras.models.load_model('./rf_model')
+    test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/img',
+                               '../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/labels.csv')
+
+    test_set = adjust_dataset(test_set)
+    test_ds = test_set[0]
+
+    test_label = test_set[1]
+    # Predict
+    test_loss = saved_model.evaluate(test_ds)
+    print(f'{test_loss}')
+
+def adjust_dataset(dataset):
+    dataset_set_adjust = [[], []]
+    # print(dataset[0][0].flatten())
+    for data in dataset:
+        dataset_set_adjust[0].append(data[0].flatten())
+        dataset_set_adjust[1].append(data[1])
+    return dataset_set_adjust
+
 
 if __name__ == '__main__':
+    # test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/img',
+    #                            '../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/labels.csv')
+    # batch_size = 256
+    # test_set = test_set.batch(batch_size)
+    # run_saved_model(test_set)
     infer()

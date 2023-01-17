@@ -1,57 +1,92 @@
 import os
 import sys
 
-import numpy as np
+import pandas as pd
 import tensorflow as tf
-from keras import datasets, layers, models, Sequential
+import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import pandas as pd
-from tensorflow.python.data import Dataset, make_one_shot_iterator
-
 AUTOTUNE = tf.data.AUTOTUNE
-# change to
-loss_function = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-# define fixed image size for input
-img_height = 50
-img_width = 50
-# used for plot
-class_dic = {1: 'male', 0: 'female'}
-label_num = len(class_dic)
+loss_function = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
 batch_size = 32
 epochs = 10
+class_dic = {0: 'eye_color_1', 1: 'eye_color_2', 2: 'eye_color_3', 3: 'eye_color_4', 4: 'eye_color_5'}
+img_width = 50
+img_height = 50
+img_shape = None
 
 
-def make_datasets():
-    # load image
-    dataset, dataset_size = make_dataset('Datasets/dataset_AMLS_22-23/celeba/img',
-                                         'Datasets/dataset_AMLS_22-23/celeba/labels.csv')
+def identity_block(x, filter):
+    # copy tensor to variable called x_skip
+    x_skip = x
+    # Layer 1
+    x = tf.keras.layers.Conv2D(filter, (3, 3), padding='same')(x)
+    x = tf.keras.layers.BatchNormalization(axis=3)(x)
+    x = tf.keras.layers.Activation('relu')(x)
+    # Layer 2
+    x = tf.keras.layers.Conv2D(filter, (3, 3), padding='same')(x)
+    x = tf.keras.layers.BatchNormalization(axis=3)(x)
+    # Add Residue
+    x = tf.keras.layers.Add()([x, x_skip])
+    x = tf.keras.layers.Activation('relu')(x)
+    return x
 
-    test_set, _ = make_dataset('Datasets/dataset_AMLS_22-23_test/celeba_test/img',
-                               'Datasets/dataset_AMLS_22-23_test/celeba_test/labels.csv')
 
-    train_size = int(0.8 * dataset_size)
-    train_ds = dataset.take(train_size)
-    val_ds = dataset.skip(train_size)
+def convolutional_block(x, filter):
+    # copy tensor to variable called x_skip
+    x_skip = x
+    # Layer 1
+    x = tf.keras.layers.Conv2D(filter, (3, 3), padding='same', strides=(2, 2))(x)
+    x = tf.keras.layers.BatchNormalization(axis=3)(x)
+    x = tf.keras.layers.Activation('relu')(x)
+    # Layer 2
+    x = tf.keras.layers.Conv2D(filter, (3, 3), padding='same')(x)
+    x = tf.keras.layers.BatchNormalization(axis=3)(x)
+    # Processing Residue with conv(1,1)
+    x_skip = tf.keras.layers.Conv2D(filter, (1, 1), strides=(2, 2))(x_skip)
+    # Add Residue
+    x = tf.keras.layers.Add()([x, x_skip])
+    x = tf.keras.layers.Activation('relu')(x)
+    return x
 
-    train_ds = train_ds.batch(batch_size)
-    val_ds = val_ds.batch(batch_size)
-    test_ds = test_set.batch(batch_size)
 
-    for images, labels in train_ds.take(1):
-        print("...")
-        labels = labels.numpy()
-        for i in range(9):
-            ax = plt.subplot(3, 3, i + 1)
-            plt.imshow(images[i].numpy().astype("uint8"))
-            plt.title(class_dic[labels[i]])
-            plt.axis("off")
-        plt.savefig('A1/sample_data.png')
-        plt.close()
-
-    return dataset, train_ds, val_ds, test_ds
+def resnet_34(input_shape, classes=10):
+    # Step 1 (Setup Input Layer)
+    x_input = tf.keras.layers.Input(shape=input_shape)
+    x = tf.keras.layers.Rescaling(1. / 255, input_shape=input_shape)(x_input),
+    x = x[0]
+    x = tf.keras.layers.Resizing(img_width, img_height)(x),
+    x = x[0]
+    x = tf.keras.layers.ZeroPadding2D((3, 3))(x)
+    # Step 2 (Initial Conv layer along with maxPool)
+    x = tf.keras.layers.Conv2D(64, kernel_size=7, strides=2, padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.MaxPool2D(pool_size=3, strides=2, padding='same')(x)
+    # Define size of sub-blocks and initial filter size
+    block_layers = [3, 4, 6, 3]
+    filter_size = 64
+    # Step 3 Add the Resnet Blocks
+    for i in range(4):
+        if i == 0:
+            # For sub-block 1 Residual/Convolutional block not needed
+            for j in range(block_layers[i]):
+                x = identity_block(x, filter_size)
+        else:
+            # One Residual/Convolutional Block followed by Identity blocks
+            # The filter size will go on increasing by a factor of 2
+            filter_size = filter_size * 2
+            x = convolutional_block(x, filter_size)
+            for j in range(block_layers[i] - 1):
+                x = identity_block(x, filter_size)
+    # Step 4 End Dense Network
+    x = tf.keras.layers.AveragePooling2D((2, 2), padding='same')(x)
+    x = tf.keras.layers.Flatten()(x)
+    x = tf.keras.layers.Dense(512, activation='relu')(x)
+    x = tf.keras.layers.Dense(classes, activation='softmax')(x)
+    model = tf.keras.models.Model(inputs=x_input, outputs=x, name="ResNet34")
+    return model
 
 
 def cross_validation(dataset):
@@ -62,7 +97,7 @@ def cross_validation(dataset):
 
     # Cross-validation process -----------------------------------------------------------------------------------------
     possible_learning_rates = [1e-2, 1e-3, 1e-4]
-    folds_num = 10
+    folds_num = 3
     # Define the K-fold Cross Validator
     k_fold = KFold(n_splits=folds_num, shuffle=True)
     average_error_list = []
@@ -76,23 +111,11 @@ def cross_validation(dataset):
 
         for train_index, test_index in k_fold.split(train_dataset[0], train_dataset[1]):
             # Define the model architecture
-            interim_model = Sequential([
-                layers.Resizing(50, 50),
-                layers.Rescaling(1. / 255, input_shape=(50, 50, 3)),
-                layers.Conv2D(16, 3, padding='same', activation='relu'),
-                layers.MaxPooling2D(),
-                layers.Conv2D(32, 3, padding='same', activation='relu'),
-                layers.MaxPooling2D(),
-                layers.Conv2D(64, 3, padding='same', activation='relu'),
-                layers.MaxPooling2D(),
-                layers.Flatten(),
-                layers.Dense(128, activation='relu'),
-                layers.Dense(label_num)
-            ])
+            interim_model = resnet_34(img_shape, classes=5)
 
             # Compile the model
             interim_model.compile(loss=loss_function,
-                                  optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+                                  optimizer=tf.keras.optimizers.SGD(learning_rate=learning_rate),
                                   metrics=['accuracy'])
 
             # Generate a print
@@ -158,32 +181,22 @@ def cross_validation(dataset):
 
 
 def train(dataset, train_ds, val_ds, test_ds, cv_option=False):
-    # cross validation
+    # configure the dataset for performance.
+    train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
 
+    for img, _ in train_ds.take(1):
+        global img_shape
+        img_shape = img.shape[1:]
+
+    # cross validation
     if cv_option:
         best_learning_rate = cross_validation(dataset)
 
     else:
-        best_learning_rate = 0.02
+        best_learning_rate = 1e-4
 
-    # configure the dataset for performance.
-    train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-    # val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+    model = resnet_34(img_shape, classes=5)
 
-    # create the model, CNN
-    model = Sequential([
-        layers.Resizing(img_height, img_width),
-        layers.Rescaling(1. / 255, input_shape=(img_height, img_width, 3)),
-        layers.Conv2D(16, 3, padding='same', activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(32, 3, padding='same', activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(64, 3, padding='same', activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Flatten(),
-        layers.Dense(128, activation='relu'),
-        layers.Dense(label_num)
-    ])
 
     # Compile the model ------------------------------------------------------------------------------------------------
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=best_learning_rate),
@@ -224,76 +237,60 @@ def train(dataset, train_ds, val_ds, test_ds, cv_option=False):
     plt.legend(loc='upper right')
     plt.title('Training and Validation Loss')
     if cv_option:
-        plt.savefig('A1/training_results.png')
+        plt.savefig('./training_results.png')
     else:
-        plt.savefig('A1/training_no_cv_results.png')
+        plt.savefig('./training_no_cv_results.png')
     plt.close()
 
     # with k-fold
-    model.save('./cnn_model')
-    # without k-fold
-    # model.save('./cnn_no_cv_model')
+    model.save('./resnet_model')
 
-    # # implement dropout ------------------------------------------------------------------------------------------------
-    # model_dropout = Sequential([
-    #     layers.Rescaling(1. / 255),
-    #     layers.Conv2D(16, 3, padding='same', activation='relu'),
-    #     layers.MaxPooling2D(),
-    #     layers.Conv2D(32, 3, padding='same', activation='relu'),
-    #     layers.MaxPooling2D(),
-    #     layers.Conv2D(64, 3, padding='same', activation='relu'),
-    #     layers.MaxPooling2D(),
-    #     layers.Dropout(0.2),
-    #     layers.Flatten(),
-    #     layers.Dense(128, activation='relu'),
-    #     layers.Dense(label_num, name="outputs")
-    # ])
-    # model.compile(optimizer='adam',
-    #               loss=loss_function,
-    #               metrics=['accuracy'])
-    # epochs = 15
-    # history = model.fit(
-    #     train_ds,
-    #     validation_data=val_ds,
-    #     epochs=epochs
-    # )
-    # model.summary()
-    # acc = history.history['accuracy']
-    # val_acc = history.history['val_accuracy']
-    #
-    # loss = history.history['loss']
-    # val_loss = history.history['val_loss']
-    #
-    # epochs_range = range(epochs)
-    #
-    # plt.figure(figsize=(8, 8))
-    # plt.subplot(1, 2, 1)
-    # plt.plot(epochs_range, acc, label='Training Accuracy')
-    # plt.plot(epochs_range, val_acc, label='Validation Accuracy')
-    # plt.legend(loc='lower right')
-    # plt.title('Training and Validation Accuracy')
-    #
-    # plt.subplot(1, 2, 2)
-    # plt.plot(epochs_range, loss, label='Training Loss')
-    # plt.plot(epochs_range, val_loss, label='Validation Loss')
-    # plt.legend(loc='upper right')
-    # plt.title('Training and Validation Loss')
-    # plt.savefig('training_results_dropout.png')
-    # plt.close()
-    # with k-fold
-    model.save('A1/cnn_dropout_model')
 
-    print("!!!")
+def make_datasets():
+    # load image
+    dataset, dataset_size = make_dataset('../Datasets/dataset_AMLS_22-23/cartoon_set/img',
+                                         '../Datasets/dataset_AMLS_22-23/cartoon_set/labels.csv')
+
+    test_set, _ = make_dataset('../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/img',
+                               '../Datasets/dataset_AMLS_22-23_test/cartoon_set_test/labels.csv')
+
+    train_size = int(0.8 * dataset_size)
+    train_ds = dataset.take(train_size)
+    val_ds = dataset.skip(train_size)
+
+    train_ds = train_ds.batch(batch_size)
+    val_ds = val_ds.batch(batch_size)
+    test_ds = test_set.batch(batch_size)
+
+    for images, labels in train_ds.take(1):
+        print("...")
+        labels = labels.numpy()
+        for i in range(9):
+            ax = plt.subplot(3, 3, i + 1)
+            plt.imshow(images[i].numpy().astype("uint8"))
+            plt.title(class_dic[labels[i]])
+            plt.axis("off")
+        plt.savefig('./sample_data.png')
+        plt.close()
+
+    return dataset, train_ds, val_ds, test_ds
+
+
+def get_filenames_from_folder(folder):
+    filenames = []
+    image_file = os.listdir(folder)  # your directory path
+    img_num = len(image_file)
+    for i in range(img_num):
+        filename = str(i) + '.png'
+        filenames.append(os.path.join(folder, filename))
+    return filenames
 
 
 def make_dataset(image_path, label_path):
     # load image
     labels_df = pd.read_csv(label_path, sep='\t')
     labels_df = labels_df.drop(labels_df.columns[0], axis=1)
-    labels = labels_df.loc[:, 'gender'].tolist()
-    for i in range(len(labels)):
-        if labels[i] == -1:
-            labels[i] = 0
+    labels = labels_df.loc[:, 'eye_color'].tolist()
 
     # Convert to tensorflow datasets
     # step 1
@@ -306,7 +303,7 @@ def make_dataset(image_path, label_path):
 
     def _parse_function(filename, label):
         image_string = tf.io.read_file(filename)
-        image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+        image_decoded = tf.image.decode_png(image_string, channels=3)
         image = tf.cast(image_decoded, tf.float32)
         return image, label
 
@@ -317,18 +314,12 @@ def make_dataset(image_path, label_path):
     return dataset, dataset_size
 
 
-def get_filenames_from_folder(folder):
-    filenames = []
-    image_file = os.listdir(folder)  # your directory path
-    img_num = len(image_file)
-    for i in range(img_num):
-        filename = str(i) + '.jpg'
-        filenames.append(os.path.join(folder, filename))
-    return filenames
-
+def run_b2():
+    dataset, train_ds, val_ds, test_ds = make_datasets()
+    train(dataset, train_ds, val_ds, test_ds, cv_option=False)
 
 def run_saved_model(test_ds):
-    saved_model = tf.keras.models.load_model('A1/cnn_dropout_model')
+    saved_model = tf.keras.models.load_model('./resnet_model')
 
     # Check its architecture
     saved_model.summary()
@@ -339,5 +330,5 @@ def run_saved_model(test_ds):
 
 
 if __name__ == '__main__':
-    datasets, train_ds, val_ds, test_ds = make_datasets()
+    dataset, train_ds, val_ds, test_ds = make_datasets()
     run_saved_model(test_ds)
