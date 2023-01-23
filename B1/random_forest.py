@@ -4,17 +4,10 @@ This python file contains the code for training, validation and testing the rand
 
 """
 import os
-
-import numpy as np
 import pandas as pd
-from keras.layers import Flatten
-from matplotlib import pyplot as plt
-from sklearn import svm, preprocessing
-import random
-
-import tensorflow_decision_forests as tfdf
 import tensorflow as tf
-from sklearn.metrics import accuracy_score
+import tensorflow_decision_forests as tfdf
+from matplotlib import pyplot as plt
 
 
 def make_dataset(image_path, label_path):

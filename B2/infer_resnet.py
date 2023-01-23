@@ -5,7 +5,6 @@ This python file contains the code for training, validation and testing the resn
 """
 import os
 import sys
-
 import pandas as pd
 import tensorflow as tf
 import numpy as np
