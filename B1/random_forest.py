@@ -1,3 +1,8 @@
+"""Solve B1 task
+
+This python file contains the code for training, validation and testing the random forest model.
+
+"""
 import os
 
 import numpy as np

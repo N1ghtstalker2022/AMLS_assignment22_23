@@ -1,5 +1,9 @@
-import os
+"""Solve A2 task
 
+This python file contains the code for training, validation and testing the SVM model.
+
+"""
+import os
 import numpy as np
 import pandas as pd
 from PIL import Image

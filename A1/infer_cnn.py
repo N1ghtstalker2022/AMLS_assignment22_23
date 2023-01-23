@@ -1,15 +1,16 @@
+"""Solve A1 task
+
+This python file contains the code for training, validation and testing the CNN model.
+
+"""
 import os
 import sys
-
-import numpy as np
-import tensorflow as tf
-from keras import datasets, layers, models, Sequential
-from sklearn.model_selection import KFold
-
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
+import numpy as np
 import pandas as pd
-from tensorflow.python.data import Dataset, make_one_shot_iterator
+import tensorflow as tf
+from keras import layers, Sequential
+from sklearn.model_selection import KFold
 
 AUTOTUNE = tf.data.AUTOTUNE
 # change to

@@ -1,3 +1,8 @@
+"""Solve B2 task
+
+This python file contains the code for training, validation and testing the resnet-34 model.
+
+"""
 import os
 import sys
 
@@ -197,7 +202,6 @@ def train(dataset, train_ds, val_ds, test_ds, cv_option=False):
 
     model = resnet_34(img_shape, classes=5)
 
-
     # Compile the model ------------------------------------------------------------------------------------------------
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=best_learning_rate),
                   loss=loss_function,
@@ -317,6 +321,7 @@ def make_dataset(image_path, label_path):
 def run_b2():
     dataset, train_ds, val_ds, test_ds = make_datasets()
     train(dataset, train_ds, val_ds, test_ds, cv_option=False)
+
 
 def run_saved_model(test_ds):
     saved_model = tf.keras.models.load_model('./resnet_model')
